@@ -23,12 +23,16 @@ def generate_launch_description():
     # 获取配置包路径
     pkg_share = get_package_share_directory("dolphin_arm_moveitassis")
 
-    # 构建 MoveIt 配置对象（URDF + SRDF + 控制器）
+    # 构建 MoveIt 配置对象（URDF + SRDF + 运动学 + 控制器）
     moveit_config = (
         MoveItConfigsBuilder("Robot_Arm_Urdf", package_name="dolphin_arm_moveitassis")
         .robot_description(file_path=os.path.join(pkg_share, "config", "Robot_Arm_Urdf.urdf.xacro"))
         .robot_description_semantic(file_path=os.path.join(pkg_share, "config", "Robot_Arm_Urdf.srdf"))
+        # 缺少 kinematics.yaml 时 move_group 没有任何 IK 插件，规划一定失败
+        .robot_description_kinematics(file_path=os.path.join(pkg_share, "config", "kinematics.yaml"))
         .trajectory_execution(file_path=os.path.join(pkg_share, "config", "moveit_controllers.yaml"))
+        .joint_limits(file_path=os.path.join(pkg_share, "config", "joint_limits.yaml"))
+        .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
 
@@ -79,15 +83,15 @@ def my_generate_move_group_launch(ld, moveit_config):
     ]
 
     # --- 启动 move_group 节点 ---
+    # 仓库里没有 launch/gdb_settings.gdb，传路径会让 add_debuggable_node 报错，
+    # 这里不传 commands_file，gdb 调试时只使用默认参数。
     add_debuggable_node(
         ld,
         package="moveit_ros_move_group",
         executable="move_group",
-        commands_file=str(moveit_config.package_path / "launch" / "gdb_settings.gdb"),
         output="screen",
         parameters=move_group_params,
         extra_debug_args=["--debug"],
-        additional_env={"DISPLAY": ":0"},
     )
     return ld
 
@@ -97,7 +101,8 @@ def my_generate_moveit_rviz_launch(ld, moveit_config):
     启动带 MoveIt 插件的 RViz2
     """
 
-    ld.add_action(DeclareBooleanLaunchArg("debug", default_value=False))
+    # debug 参数在 my_generate_move_group_launch 中已经声明过一次，
+    # 重复声明会抛 "duplicate launch argument" 异常
     ld.add_action(
         DeclareLaunchArgument(
             "rviz_config",

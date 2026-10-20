@@ -25,11 +25,14 @@ public:
 
         // === 参数初始化 ===
         grip_pos_ = -0.017;  // 初始为闭合位置
-        input_min_ = -0.43;  // 霍尔最小值（张开）
+        // 与 dolphin_arm_bridge/joystick_gripper.cpp 保持同一标定范围，
+        // 原来写 -0.43，同一条霍尔轴在两个节点里范围不一致
+        input_min_ = -0.61;  // 霍尔最小值（张开）
         input_max_ =  0.62;  // 霍尔最大值（闭合）
         output_min_ = -0.017;
         output_max_ = 0.8;
         neutral_ = 0.0;
+        last_hall_ = 0.0;
         calibrated_ = false;
         axis_id_ = 2;  // 默认霍尔对应 axes[2]
 
@@ -51,6 +54,8 @@ private:
         if (!calibrated_)
         {
             neutral_ = hall_value;
+            // 同时初始化 last_hall_，否则校准后的第一个控制周期会读到未初始化内存
+            last_hall_ = hall_value;
             calibrated_ = true;
             RCLCPP_INFO(this->get_logger(), "📟 Neutral calibrated at %.3f", neutral_);
             return;

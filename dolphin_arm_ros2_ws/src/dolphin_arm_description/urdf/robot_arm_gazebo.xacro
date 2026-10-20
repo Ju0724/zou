@@ -4,10 +4,9 @@
   <xacro:property name="ctrl_share" value="$(find dolphin_arm_controller)"/>
   
   <gazebo>
-    <ros>
-      <namespace>/gazebo_ros2_control</namespace>
-    </ros>
-
+    <!-- 不要在这里加 <ros><namespace>，否则 controller_manager 会变成
+         /gazebo_ros2_control/controller_manager，与 controller.launch.py、
+         MoveIt 里配置的 /controller_manager 对不上 -->
     <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
       <robot_param>robot_description</robot_param>
       <robot_param_node>robot_state_publisher</robot_param_node>

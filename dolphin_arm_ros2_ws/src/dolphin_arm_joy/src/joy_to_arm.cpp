@@ -56,6 +56,9 @@ private:
         if (msg->buttons[2] == 1)
         {
             joint_pos_ = {0.0, 0.0, 0.0};
+            // 复位时必须同步清掉 last_B_，否则下一周期 deltaB 等于旧角度，
+            // J3 会被一次性拉走
+            last_B_ = joint_pos_[1];
             for (size_t i = 0; i < 3; ++i)
                 neutral_[i] = msg->axes[axis_map_[i]];
             calibrated_ = true;
@@ -100,13 +103,11 @@ private:
         // 当第二个关节(B)转动时，第三个关节(C)应同步变化
         // 例如：C = B + offset   （或差值方式：ΔC = ΔB）
         // 为简单起见，这里设 ΔC = ΔB
-        static double last_B = joint_pos_[1];
-
-        double deltaB = joint_pos_[1] - last_B;
+        double deltaB = joint_pos_[1] - last_B_;
         joint_pos_[2] -= deltaB;  // J3 跟随 J2 变化
         joint_pos_[2] = std::clamp(joint_pos_[2], joint_min_[2], joint_max_[2]);
 
-        last_B = joint_pos_[1];
+        last_B_ = joint_pos_[1];
 
         // === 发布 JointTrajectory ===
         trajectory_msgs::msg::JointTrajectory traj;
@@ -139,6 +140,7 @@ private:
     bool calibrated_;
     double deadzone_;
     double base_step_;
+    double last_B_ = 0.0;
     int axis_map_[3];
     int sign_map_[3];
 };

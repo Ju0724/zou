@@ -5,7 +5,6 @@
 #include <string>
 #include <sstream>
 #include <mutex>
-#include <future>
 #include <cmath>
 #include <algorithm>
 
@@ -20,12 +19,13 @@ public:
           s_(0.0), angleD_(0.0), initialized_(false)
     {
         // === 串口初始化 ===
+        device_ = this->declare_parameter<std::string>("device", "/dev/ttyUSB0");
         try {
-            serial_.Open("/dev/ttyUSB0");
+            serial_.Open(device_);
             serial_.SetBaudRate(LibSerial::BaudRate::BAUD_115200);
-            RCLCPP_INFO(this->get_logger(), "Connected to /dev/ttyUSB0");
+            RCLCPP_INFO(this->get_logger(), "Connected to %s", device_.c_str());
         } catch (const LibSerial::OpenFailed &) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port!");
+            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port %s!", device_.c_str());
             return;
         }
 
@@ -120,21 +120,21 @@ private:
 
         std::stringstream ss;
         ss << "<"
-           << static_cast<int>(servoA_) << ","
-           << static_cast<int>(servoB_) << ","
-           << static_cast<int>(servoC_) << ","
-           << static_cast<int>(angleD_) << ">\n";
+           << std::lround(servoA_) << ","
+           << std::lround(servoB_) << ","
+           << std::lround(servoC_) << ","
+           << std::lround(angleD_) << ">\n";
         std::string cmd = ss.str();
 
-        (void)std::async(std::launch::async, [this, cmd]() {
-            try {
-                std::lock_guard<std::mutex> lock(serial_mutex_);
-                serial_.Write(cmd);
-                serial_.DrainWriteBuffer();
-            } catch (const LibSerial::NotOpen &) {
-                RCLCPP_ERROR(this->get_logger(), "Serial not open!");
-            }
-        });
+        // 直接同步写：原来每条 joint_states 都 std::async 起一个线程且不等待，
+        // 100Hz 下会持续创建线程，属于明显的资源泄漏
+        try {
+            std::lock_guard<std::mutex> lock(serial_mutex_);
+            serial_.Write(cmd);
+            serial_.DrainWriteBuffer();
+        } catch (const LibSerial::NotOpen &) {
+            RCLCPP_ERROR(this->get_logger(), "Serial not open!");
+        }
 
         RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
                              "Servo cmd: A=%.1f B=%.1f C=%.1f D=%.1f",
@@ -149,6 +149,7 @@ private:
     std::mutex serial_mutex_;
 
     // 初始舵机角度
+    std::string device_;
     double baseA0_, baseB0_, baseC0_;
     double s_;
     double angleD_;

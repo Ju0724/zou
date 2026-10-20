@@ -8,6 +8,7 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(moveit_core REQUIRED)
+find_package(moveit_msgs REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -15,6 +16,8 @@ find_package(geometry_msgs REQUIRED)
 add_library(${PROJECT_NAME} SHARED
   src/dolphin_arm_kinematics_plugin.cpp
 )
+
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -24,16 +27,15 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   pluginlib
   moveit_core
+  moveit_msgs
   geometry_msgs
 )
 
-pluginlib_export_plugin_description_file(kinematics_base plugin_description.xml)
+# 第一个参数必须是“导出插件基类的包”，即 moveit_core
+pluginlib_export_plugin_description_file(moveit_core plugin_description.xml)
 
 install(TARGETS ${PROJECT_NAME}
   LIBRARY DESTINATION lib)
-
-install(FILES plugin_description.xml
-  DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

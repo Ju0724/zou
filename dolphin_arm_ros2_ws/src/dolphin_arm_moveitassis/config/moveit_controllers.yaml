@@ -5,7 +5,9 @@ moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControll
 moveit_simple_controller_manager:
   controller_names:
     - arm_controller
-    - gripper_controller
+    # gripper_controller 是 ForwardCommandController（订阅 /gripper_controller/commands
+    # 的 Float64MultiArray），没有 FollowJointTrajectory action，
+    # 放进 MoveIt 会一直报 action 不存在，因此这里只由 MoveIt 规划、不执行夹爪。
 
   arm_controller:
     type: FollowJointTrajectory
@@ -14,9 +16,3 @@ moveit_simple_controller_manager:
       - Fixed_Base_rot_1
       - Rotary_Base_rot_2
       - BC_Connecting_Rod_rot_3
-  gripper_controller:
-    type: FollowJointTrajectory
-    action_ns: follow_joint_trajectory
-    joints:
-      - Jaw_Bracket_rot_6
-      

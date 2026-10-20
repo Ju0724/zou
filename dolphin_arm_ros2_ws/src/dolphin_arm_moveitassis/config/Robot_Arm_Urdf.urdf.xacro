@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="Robot_Arm_Urdf">
-    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+    <!-- 必须用绝对路径：xacro 会按当前工作目录解析相对路径，
+         从任意目录启动 move_group 都会找不到 initial_positions.yaml -->
+    <xacro:arg name="initial_positions_file" default="$(find dolphin_arm_moveitassis)/config/initial_positions.yaml" />
 
     <!-- Import Robot_Arm_Urdf urdf file -->
     <xacro:include filename="$(find dolphin_arm_description)/urdf/robot_arm_moveit_urdf.urdf.xacro" />

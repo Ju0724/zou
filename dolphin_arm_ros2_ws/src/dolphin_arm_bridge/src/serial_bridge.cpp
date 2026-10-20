@@ -2,22 +2,26 @@
 #include <libserial/SerialPort.h>
 #include <sstream>
 #include <string>
+#include <cmath>
 
 class ServoFixed : public rclcpp::Node
 {
 public:
     ServoFixed() : Node("servo_fixed")
     {
+        // 串口设备名参数化，避免写死 /dev/ttyUSB0
+        device_ = this->declare_parameter<std::string>("device", "/dev/ttyUSB0");
+
         // 打开串口
         try
         {
-            serial_port_.Open("/dev/ttyUSB0");  //按实际设备修改
+            serial_port_.Open(device_);
             serial_port_.SetBaudRate(LibSerial::BaudRate::BAUD_115200);
-            RCLCPP_INFO(this->get_logger(), "Connected to /dev/ttyUSB0");
+            RCLCPP_INFO(this->get_logger(), "Connected to %s", device_.c_str());
         }
         catch (const LibSerial::OpenFailed &)
         {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port!");
+            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port %s!", device_.c_str());
             return;
         }
 
@@ -42,8 +46,15 @@ public:
 private:
     void send_angles()
     {
+        // 协议必须和 joystick_arm.cpp / joystick_gripper.cpp 保持一致：
+        //   <A,B,C,D>\n
+        // 原来这里发的是 "A=90 B=15 C=165 D=0"，与另外两个节点不兼容
         std::stringstream ss;
-        ss << "A=" << angleA_ << " B=" << angleB_ << " C=" << angleC_ << " D=" << angleD_ << "\n";
+        ss << "<"
+           << std::lround(angleA_) << ","
+           << std::lround(angleB_) << ","
+           << std::lround(angleC_) << ","
+           << std::lround(angleD_) << ">\n";
         std::string cmd = ss.str();
 
         try
@@ -59,6 +70,7 @@ private:
 
     LibSerial::SerialPort serial_port_;
     rclcpp::TimerBase::SharedPtr timer_;
+    std::string device_;
     double angleA_, angleB_, angleC_, angleD_;
 };
 

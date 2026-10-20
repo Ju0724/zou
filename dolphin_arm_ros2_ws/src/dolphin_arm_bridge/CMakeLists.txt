@@ -3,49 +3,45 @@ project(dolphin_arm_bridge)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(trajectory_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-# 手动指定 LibSerial 的 include 与 lib 路径
-include_directories(/usr/local/include)
-link_directories(/usr/local/lib)
+# ---- LibSerial ----
+# 原来硬编码 /usr/local/include + /usr/local/lib，放到 /usr 下的系统安装会找不到。
+find_library(LIBSERIAL_LIBRARY NAMES serial libserial)
+find_path(LIBSERIAL_INCLUDE_DIR NAMES libserial/SerialPort.h)
+if(NOT LIBSERIAL_LIBRARY OR NOT LIBSERIAL_INCLUDE_DIR)
+  message(FATAL_ERROR
+    "找不到 LibSerial。请先安装（例如 `sudo apt install libserial-dev`），"
+    "或从 https://github.com/crayzeewulf/libserial 编译安装。")
+endif()
 
-add_executable(serial_bridge.cpp src/serial_bridge.cpp)
-add_executable(joystick_gripper.cpp src/joystick_gripper.cpp)
-add_executable(joystick_arm.cpp src/joystick_arm.cpp)
+set(BRIDGE_NODES
+  serial_bridge
+  joystick_gripper
+  joystick_arm
+)
 
-ament_target_dependencies(
-  serial_bridge.cpp
+foreach(node ${BRIDGE_NODES})
+  add_executable(${node} src/${node}.cpp)
+  target_include_directories(${node} PRIVATE ${LIBSERIAL_INCLUDE_DIR})
+  target_link_libraries(${node} ${LIBSERIAL_LIBRARY})
+endforeach()
+
+ament_target_dependencies(serial_bridge
   rclcpp
-  trajectory_msgs
+)
+
+ament_target_dependencies(joystick_gripper
+  rclcpp
   sensor_msgs
 )
 
-ament_target_dependencies(
-  joystick_gripper.cpp
+ament_target_dependencies(joystick_arm
   rclcpp
-  trajectory_msgs
   sensor_msgs
 )
-ament_target_dependencies(
-  joystick_arm.cpp 
-  rclcpp 
-  trajectory_msgs
-  sensor_msgs)
 
-# 链接 LibSerial 库
-target_link_libraries(serial_bridge.cpp serial)
-target_link_libraries(joystick_gripper.cpp serial)
-target_link_libraries(joystick_arm.cpp serial)
-
-install(TARGETS serial_bridge.cpp
+install(TARGETS ${BRIDGE_NODES}
   DESTINATION lib/${PROJECT_NAME})
-
-install(TARGETS joystick_gripper.cpp
-  DESTINATION lib/${PROJECT_NAME})
-
-install(TARGETS joystick_arm.cpp
-  DESTINATION lib/${PROJECT_NAME})
-
 
 ament_package()

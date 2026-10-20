@@ -23,7 +23,6 @@ def generate_launch_description():
         cmd=[
             'bash','-lc',
             'export GAZEBO_MODEL_DATABASE_URI=; '
-            'export ROS_NAMESPACE=/gazebo_ros2_control; '
             'gazebo --verbose -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'
         ],
         output='screen'

@@ -20,15 +20,17 @@ def generate_launch_description():
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
-    rviz_config = LaunchConfiguration(
-        "rviz_config",
-        default=moveit_config.package_path / "config/moveit.rviz"
-    )
+
+    # 注意：这里必须用真实路径字符串作为默认值。
+    # 原来写成 default=str(LaunchConfiguration("rviz_config"))，会让 rviz2 收到
+    # 字符串 "LaunchConfiguration('rviz_config')" 而不是配置文件路径。
+    default_rviz_config = str(moveit_config.package_path / "config" / "moveit.rviz")
+    rviz_config = LaunchConfiguration("rviz_config", default=default_rviz_config)
 
     declared_arguments = [
         DeclareLaunchArgument("use_sim_time", default_value="true",
                               description="Use simulation (Gazebo) clock"),
-        DeclareLaunchArgument("rviz_config", default_value=str(rviz_config),
+        DeclareLaunchArgument("rviz_config", default_value=default_rviz_config,
                               description="RViz configuration file")
     ]
 

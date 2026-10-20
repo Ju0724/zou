@@ -17,13 +17,6 @@
 inline double deg2rad(double d) { return d * M_PI / 180.0; }
 inline double rad2deg(double r) { return r * 180.0 / M_PI; }
 
-inline double sgn(double num)
-{
-  if (num > 0.0) return 1.0;
-  if (num < 0.0) return -1.0;
-  return 0.0;
-}
-
 inline double clamp(double v, double lo, double hi)
 {
   return std::max(lo, std::min(hi, v));
@@ -57,73 +50,6 @@ void alg_positive_operation(double a_deg, double b_deg, double c_deg,
   *z_mm = std::sin(theta_rad) * inner;
 }
 
-// ===== 逆运动学：由末端 xyz（mm） -> 几何角 A,B,C（deg）=====
-bool inverse_operation(double x_mm, double y_mm, double z_mm,
-                       double* outA_deg, double* outB_deg, double* outC_deg)
-{
-  double X = x_mm;
-  double Y = y_mm;
-  double Z = z_mm;
-
-  // ---- 1) 先算 A（几何角），选择 0~180° 这一支 ----
-  double A_raw = rad2deg(std::atan2(Z, X)) + 35.0;
-
-  // 归一化到 [0,360)，再压到 [0,180]
-  double A_deg = std::fmod(A_raw + 360.0, 360.0);
-  if (A_deg > 180.0)
-  {
-    A_deg -= 180.0;
-  }
-
-  // ---- 2) 平面几何求 Bs, Cs ----
-  // X' = -sgn(X)*sqrt(X^2 + Z^2)
-  // H = -X' - 7 - 60
-  // V = Y - 65.5
-  double R = std::sqrt(X * X + Z * Z);
-  double Xp = -sgn(X) * R;              // X'
-  double H  = -Xp - 7.0 - 60.0;         // 水平距离
-  double V  = Y - 65.5;                 // 竖直距离
-
-  double L = std::sqrt(H * H + V * V);
-  if (L < 1e-6)
-  {
-    return false;
-  }
-
-  double temp1_rad = std::atan2(V, H);
-  double temp1_deg = rad2deg(temp1_rad);
-
-  // temp2 = arccos((145² + H² + V² - 135²) / (2 * 135 * sqrt(H²+V²)))
-  double num2 = 145.0 * 145.0 + H * H + V * V - 135.0 * 135.0;
-  double den2 = 2.0 * 135.0 * L;
-  double cos2 = num2 / den2;
-  cos2 = clamp(cos2, -1.0, 1.0);
-  double temp2_rad = std::acos(cos2);
-  double temp2_deg = rad2deg(temp2_rad);
-
-  // temp3 = arccos((145²+135²-(H²+V²))/(2*135*145))
-  double num3 = 145.0 * 145.0 + 135.0 * 135.0 - (H * H + V * V);
-  double den3 = 2.0 * 135.0 * 145.0;
-  double cos3 = num3 / den3;
-  cos3 = clamp(cos3, -1.0, 1.0);
-  double temp3_rad = std::acos(cos3);
-  double temp3_deg = rad2deg(temp3_rad);
-
-  double Bs_deg = 111.0 - temp2_deg - temp1_deg;
-  double Cs_deg = -14.5 - temp2_deg - temp1_deg + temp3_deg;
-
-  // 利用初始姿态 (A,B,C)=(90,0,180) 校准：
-  // 初始点求得 Bs≈0, Cs≈54.5，为了得到 C=180:
-  //   C = Bs + Cs + 125.5
-  double B_deg = Bs_deg;
-  double C_deg = Bs_deg + Cs_deg + 125.5;
-
-  *outA_deg = A_deg;
-  *outB_deg = B_deg;
-  *outC_deg = C_deg;
-  return true;
-}
-
 // ===== 角度合法性检查 =====
 bool check_angle(double A_deg, double B_deg, double C_deg)
 {
@@ -147,6 +73,70 @@ bool check_angle(double A_deg, double B_deg, double C_deg)
     return false;
 
   return true;
+}
+
+// ===== 逆运动学：由末端 xyz（mm） -> 几何角 A,B,C（deg）=====
+// 这是标准两连杆（135mm / 145mm）平面解析解。
+// 原实现里 temp2 的余弦用错了三角形顶点（分子写成 145²+L²-135²），
+// 只有在 B=0 的奇异位姿附近才碰巧成立，B 不为 0 时解出的关节角无法反算回原位置。
+// 这里遍历 "朝前/朝后" × "肘部两个分支"，返回离 seed 最近且满足限位的一组解。
+bool inverse_operation(double x_mm, double y_mm, double z_mm,
+                       double seedA_deg, double seedB_deg, double seedC_deg,
+                       double* outA_deg, double* outB_deg, double* outC_deg)
+{
+  const double R = std::sqrt(x_mm * x_mm + z_mm * z_mm);
+  if (R < 1e-6)
+    return false;
+
+  bool   found = false;
+  double best_cost = std::numeric_limits<double>::max();
+
+  for (int sign = 1; sign >= -1; sign -= 2)
+  {
+    const double inner = sign * R;                       // 平面内的径向长度（带符号）
+    const double theta = std::atan2(z_mm / inner, x_mm / inner);
+
+    const double U = inner - 67.0;                       // 去掉 7 + 60 的水平偏置
+    const double V = y_mm - 65.5;
+    const double L = std::hypot(U, V);
+
+    if (L > 135.0 + 145.0 + 1e-6)                        // 超出可达范围
+      continue;
+    if (L < std::fabs(145.0 - 135.0) - 1e-6)
+      continue;
+
+    const double phi = std::atan2(V, U);
+    const double cos_d = clamp(
+        (135.0 * 135.0 + L * L - 145.0 * 145.0) / (2.0 * 135.0 * L), -1.0, 1.0);
+    const double d = std::acos(cos_d);
+
+    for (int elbow = 1; elbow >= -1; elbow -= 2)
+    {
+      const double p = phi + elbow * d;
+      const double r = std::atan2(V - 135.0 * std::sin(p),
+                                  U - 135.0 * std::cos(p));
+
+      const double a = std::fmod(rad2deg(theta) + 35.0 + 360.0, 360.0);
+      const double b = 111.0 - rad2deg(p);
+      const double c = rad2deg(r) + b + 69.0;
+
+      if (a < 0.0 || a > 180.0)
+        continue;
+      if (!check_angle(a, b, c))
+        continue;
+
+      const double cost = std::pow(a - seedA_deg, 2)
+                        + std::pow(b - seedB_deg, 2)
+                        + std::pow(c - seedC_deg, 2);
+      if (cost < best_cost)
+      {
+        best_cost = cost;
+        *outA_deg = a; *outB_deg = b; *outC_deg = c;
+        found = true;
+      }
+    }
+  }
+  return found;
 }
 
 // =============== 主节点：末端固定速度 + IK ===============
@@ -240,7 +230,9 @@ private:
 
     // 2) 用 IK 解出几何角 A,B,C（deg）
     double A_new, B_new, C_new;
-    if (!inverse_operation(target_x, target_y, target_z, &A_new, &B_new, &C_new))
+    if (!inverse_operation(target_x, target_y, target_z,
+                           A_deg_, B_deg_, C_deg_,
+                           &A_new, &B_new, &C_new))
     {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                            "IK failed at xyz=[%.1f, %.1f, %.1f]mm",
@@ -275,13 +267,13 @@ private:
       ik_log_.flush();
     }
 
-    // 更新内部“理论末端位置”（假设能跟上指令）
-    x_mm_ = target_x;
-    y_mm_ = target_y;
-    z_mm_ = target_z;
-    A_deg_ = A_new;
-    B_deg_ = B_new;
-    C_deg_ = C_new;
+    // 更新内部参考位置：用“真正下发的关节角”做 FK 回填，
+    // 而不是直接等于 target_*。否则 J1 被 ±35° 截断后，
+    // 参考点仍按未截断的方向继续积分，误差会单向累积。
+    A_deg_ = rad2deg(j1_rad) + 90.0;
+    B_deg_ = rad2deg(j2_rad);
+    C_deg_ = rad2deg(j3_rad) + 180.0;
+    alg_positive_operation(A_deg_, B_deg_, C_deg_, &x_mm_, &y_mm_, &z_mm_);
 
     // 发布末端位置（mm → m）
     geometry_msgs::msg::PointStamped ee_msg;
@@ -299,7 +291,9 @@ private:
 
     trajectory_msgs::msg::JointTrajectoryPoint pt;
     pt.positions = {j1_rad, j2_rad, j3_rad};
-    pt.time_from_start = rclcpp::Duration::from_seconds(0.0);
+    // 单点轨迹必须给非零 duration，否则 JointTrajectoryController 会判定
+    // "time_from_start 必须大于 0" 并拒绝整条轨迹
+    pt.time_from_start = rclcpp::Duration::from_seconds(dt_);
 
     traj.points.push_back(pt);
     traj_pub_->publish(traj);

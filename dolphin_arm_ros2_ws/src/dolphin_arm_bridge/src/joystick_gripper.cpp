@@ -5,8 +5,8 @@
 #include <string>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <mutex>
-#include <future>
 
 using namespace std::chrono_literals;
 
@@ -19,13 +19,14 @@ public:
           last_grip_value_(0.0),
           last_send_time_(std::chrono::steady_clock::now())
     {
+        device_ = this->declare_parameter<std::string>("device", "/dev/ttyUSB0");
         try {
-            serial_.Open("/dev/ttyUSB0");
+            serial_.Open(device_);
             serial_.SetBaudRate(LibSerial::BaudRate::BAUD_115200);
-            RCLCPP_INFO(this->get_logger(), "Connected to /dev/ttyUSB0");
+            RCLCPP_INFO(this->get_logger(), "Connected to %s", device_.c_str());
         }
         catch (const LibSerial::OpenFailed &) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port!");
+            RCLCPP_ERROR(this->get_logger(), "Failed to open serial port %s!", device_.c_str());
             return;
         }
 
@@ -73,22 +74,21 @@ private:
     {
         std::stringstream ss;
         ss << "<"
-        << static_cast<int>(angleA_) << ","
-        << static_cast<int>(angleB_) << ","
-        << static_cast<int>(angleC_) << ","
-        << static_cast<int>(angleD_) << ">\n";
+        << std::lround(angleA_) << ","
+        << std::lround(angleB_) << ","
+        << std::lround(angleC_) << ","
+        << std::lround(angleD_) << ">\n";
         std::string cmd = ss.str();
 
-        (void)std::async(std::launch::async, [this, cmd]() {
-            try {
-                std::lock_guard<std::mutex> lock(serial_mutex_);
-                serial_.Write(cmd);
-                serial_.DrainWriteBuffer();
-            }
-            catch (const LibSerial::NotOpen &) {
-                RCLCPP_ERROR(this->get_logger(), "Serial not open!");
-            }
-        });
+        // 同步写（原实现每秒最多 20 次 async 起线程且不回收 future）
+        try {
+            std::lock_guard<std::mutex> lock(serial_mutex_);
+            serial_.Write(cmd);
+            serial_.DrainWriteBuffer();
+        }
+        catch (const LibSerial::NotOpen &) {
+            RCLCPP_ERROR(this->get_logger(), "Serial not open!");
+        }
     }
 
     // 成员变量
@@ -96,6 +96,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
     std::mutex serial_mutex_;
+    std::string device_;
 
     double angleA_, angleB_, angleC_, angleD_;
     double last_grip_value_;
